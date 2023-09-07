@@ -40,7 +40,8 @@ public class IndexCreator {
             for (String filePath : filePaths) {
                 File file = new File(filePath);
                 String fileName = file.getName();
-                String fileContent = getFileContent(file);
+                // String fileContent = getFileContent(file);
+                String fileContent = getFileContentT(file);
 
                 SearchDocument searchDocument = indexedFiles.stream()
                         .filter(doc -> doc.getPath().equals(filePath))
@@ -55,14 +56,14 @@ public class IndexCreator {
                     searchDocument.setFileContent(fileContent);
 
                     var response = documentService.createOrUpdateDocument(searchDocument);
-                   // log.info("File {} has been added to index.", response.getPath());
+                    // log.info("File {} has been added to index.", response.getPath());
                     addedCount++;
                 } else {
                     // Файл присутствует в индексе Elasticsearch, обновляем контент файла
                     searchDocument.setFileContent(fileContent);
 
                     var response = documentService.createOrUpdateDocument(searchDocument);
-                  //  log.info("File {} has been updated in index.", response.getPath());
+                    //  log.info("File {} has been updated in index.", response.getPath());
                     updatedCount++;
                 }
             }
@@ -97,5 +98,15 @@ public class IndexCreator {
             log.error("Error while reading file content: {}", file.getAbsolutePath());
             return "";
         }
+    }
+
+    private String getFileContentT(File file) throws IOException {
+        try (var lines = Files.lines(Paths.get(file.getPath()))) {
+            return lines.collect(Collectors.joining("\n"));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return "content";
+
     }
 }

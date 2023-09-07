@@ -29,7 +29,8 @@ public class ElasticSearchController {
 
     @GetMapping("/searchByNameTotalHits")
     public ResponseEntity<Object> searchByNameTotalHits(@RequestParam String name) {
-        var documents = elasticSearchQuery.searchByPartOfNameTotalHits(name);
+      //  var documents = elasticSearchQuery.searchByPartOfNameTotalHits(name);
+        var documents = elasticSearchQuery.searchByPartOfNameWithStats(name);
         return new ResponseEntity<>(documents, HttpStatus.OK);
     }
 
