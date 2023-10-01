@@ -1,19 +1,17 @@
 package ru.vershinin.service;
 
-/*import co.elastic.clients.elasticsearch.core.*;
-import co.elastic.clients.elasticsearch.core.search.Hit;*/
 
 import lombok.extern.slf4j.Slf4j;
-
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.index.query.BoolQueryBuilder;
-import org.elasticsearch.index.query.Operator;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.elasticsearch.core.ElasticsearchOperations;
+import org.springframework.data.elasticsearch.core.ElasticsearchRestTemplate;
 import org.springframework.data.elasticsearch.core.SearchHit;
+import org.springframework.data.elasticsearch.core.SearchHits;
 import org.springframework.data.elasticsearch.core.query.NativeSearchQuery;
 import org.springframework.data.elasticsearch.core.query.NativeSearchQueryBuilder;
 import org.springframework.stereotype.Service;
@@ -21,33 +19,57 @@ import ru.vershinin.dto.SearchResult;
 import ru.vershinin.model.SearchDocument;
 import ru.vershinin.repository.DocumentRepository;
 
-import java.io.IOException;
-import java.util.ArrayList;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.stream.Collectors;
-
-import static org.elasticsearch.index.query.QueryBuilders.matchPhraseQuery;
-import static org.elasticsearch.index.query.QueryBuilders.matchQuery;
 
 @Slf4j
 @Service
 public class DocumentService {
-
+    public static final String DATA_FORMAT = "MMyyyy";
+    public static final String FILE_CONTENT = "fileContent";
 
     private final DocumentRepository documentRepository;
-    private final RestHighLevelClient client;
-    private final ElasticsearchOperations elasticsearchOperations;
 
-    public DocumentService(DocumentRepository documentRepository, RestHighLevelClient client, ElasticsearchOperations elasticsearchOperations) {
-        this.client = client;
+    private final ElasticsearchOperations elasticsearchOperations;
+    private final ElasticsearchRestTemplate elasticsearchRestTemplate;
+
+
+    public DocumentService(DocumentRepository documentRepository, ElasticsearchOperations elasticsearchOperations, ElasticsearchRestTemplate elasticsearchRestTemplate) {
         this.documentRepository = documentRepository;
         this.elasticsearchOperations = elasticsearchOperations;
+        this.elasticsearchRestTemplate = elasticsearchRestTemplate;
     }
 
-    public SearchDocument createOrUpdateDocument(SearchDocument searchDocument) {
-        return documentRepository.save(searchDocument);
+
+    public void createOrUpdateDocument(SearchDocument document) {
+        // Поиск существующего документа по fileContent
+        Optional<SearchDocument> existingDocument = findByFileContent(document.getFileContent());
+
+        // Если документ с таким fileContent существует, то обновляем его
+        existingDocument.ifPresent(searchDocument -> document.setId(searchDocument.getId()));
+
+        // Сохраняем (обновляем) документ
+        elasticsearchRestTemplate.save(document);
     }
+
+    public Optional<SearchDocument> findByFileContent(String fileContent) {
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+                .withQuery(QueryBuilders.matchQuery(FILE_CONTENT, fileContent))
+                .build();
+
+        SearchHits<SearchDocument> searchHits = elasticsearchRestTemplate.search(searchQuery, SearchDocument.class);
+
+        if (searchHits.getTotalHits() > 0) {
+            // Возвращаем первый найденный документ
+            return Optional.of(searchHits.getSearchHit(0).getContent());
+        }
+
+        return Optional.empty();
+    }
+
 
     public List<SearchDocument> findAll() {
         return documentRepository.findAll();
@@ -67,151 +89,91 @@ public class DocumentService {
 
     }
 
-    public SearchDocument findByNameSingleHit(String name) {
-        final NativeSearchQuery searchQuery = new NativeSearchQueryBuilder().withQuery(matchQuery("name", name).operator(Operator.AND))
-                .build();
-        var b = elasticsearchOperations.search(searchQuery, SearchDocument.class);
-        SearchDocument searchDocument = new SearchDocument();
-        for (SearchHit<SearchDocument> v : b) {
-            searchDocument = v.getContent();
-        }
-
-        return searchDocument;
-    }
-
-    public SearchDocument findByName(String name) {
+    public List<SearchDocument> findByName(String name) {
         return documentRepository.findByName(name);
     }
 
-    public List<SearchDocument> searchByNameTotalHits(String name) {
-        final NativeSearchQuery searchQuery = new NativeSearchQueryBuilder().withQuery(matchPhraseQuery("name", name))
-                .build();
-        var hits = elasticsearchOperations.search(searchQuery, SearchDocument.class);
-
-
-        return hits.stream()
-                .map(SearchHit::getContent)
-                .collect(Collectors.toList());
-    }
-
-    public List<SearchDocument> searchByPartOfNameTotalHits(String name) {
-        // Create a WildcardQueryBuilder for partial matching
-        QueryBuilder wildcardQuery = QueryBuilders.wildcardQuery("fileContent", "*" + name + "*");
-
-        // Create a BoolQueryBuilder to combine the wildcard query with other queries if needed
-        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery().must(wildcardQuery);
-
-        final NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
-                .withQuery(boolQuery)
-                .build();
-
-        var hits = elasticsearchOperations.search(searchQuery, SearchDocument.class);
-
-        return hits.stream()
-                .filter(hit -> hit.getContent().getFileContent() != null) // Фильтруем документы без контента
-                .map(hit -> {
-                    SearchDocument document = hit.getContent();
-                    return getSearchDocument(name, document);
-                })
-                .filter(Objects::nonNull) // Фильтруем null значения
-                .collect(Collectors.toList());
-    }
-
-    private SearchDocument getSearchDocument(String name, SearchDocument document) {
-        String content = document.getFileContent();
-        int index = content.indexOf(name); // Находим индекс начала искомого слова
-
-        if (index != -1) { // Проверяем, что индекс найден
-            // Обрезаем контент на 100 символов до и после искомого слова
-            int start = Math.max(0, Math.min(index - 100, content.length()));
-            int end = Math.min(content.length(), index + name.length() + 100);
-            String trimmedContent = content.substring(start, end);
-
-            // Создаем новый объект SearchDocument с обрезанным контентом
-            SearchDocument trimmedDocument = new SearchDocument();
-            trimmedDocument.setName(document.getName());
-            trimmedDocument.setPath(document.getPath());
-            trimmedDocument.setFileContent(trimmedContent);
-
-            return trimmedDocument;
-        } else {
-            return null;
-        }
-    }
-
-    public SearchResult searchByPartOfNameWithStats(String name) {
-        int totalFilesProcessed = 0;
-        int totalOccurrencesFound = 0;
-
-        // Создаем пустой список для результатов поиска
-        List<SearchDocument> searchResults = new ArrayList<>();
-
-        // Create a WildcardQueryBuilder for partial matching
-        QueryBuilder wildcardQuery = QueryBuilders.wildcardQuery("fileContent", "*" + name + "*");
-
-        // Create a BoolQueryBuilder to combine the wildcard query with other queries if needed
-        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery().must(wildcardQuery);
-
-        final NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
-                .withQuery(boolQuery)
-                .build();
-
-        var hits = elasticsearchOperations.search(searchQuery, SearchDocument.class);
-
-        for (SearchHit<SearchDocument> hit : hits) {
-            totalFilesProcessed++;
-
-            SearchDocument document = hit.getContent();
-            String content = document.getFileContent();
-
-            int index = content.indexOf(name); // Находим индекс начала искомого слова
-
-            if (index != -1) { // Проверяем, что индекс найден
-                totalOccurrencesFound++;
-
-                // Обрезаем контент на 100 символов до и после искомого слова
-                int start = Math.max(0, Math.min(index - 100, content.length()));
-                int end = Math.min(content.length(), index + name.length() + 100);
-                String trimmedContent = content.substring(start, end);
-
-                // Создаем новый объект SearchDocument с обрезанным контентом
-                SearchDocument trimmedDocument = new SearchDocument();
-                trimmedDocument.setName(document.getName());
-                trimmedDocument.setPath(document.getPath());
-                trimmedDocument.setFileContent(trimmedContent);
-
-                searchResults.add(trimmedDocument);
-            }
-        }
-
-        // Создаем объект SearchResult, содержащий результаты поиска и статистику
+    public SearchResult searchDocumentsByCriteriaWithStatistics(
+            String extension,
+            LocalDate startDate,
+            LocalDate endDate,
+            String word,
+            String word1,
+            String word2
+    ) {
+        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
         SearchResult result = new SearchResult();
-        result.setSearchResults(searchResults);
-        result.setTotalFilesProcessed(totalFilesProcessed);
-        result.setTotalOccurrencesFound(totalOccurrencesFound);
+
+        if (extension != null) {
+            QueryBuilder extensionQuery = QueryBuilders.termQuery("docExtension", extension);
+            boolQuery.filter(extensionQuery);
+        }
+
+        checkData(startDate, endDate, boolQuery);
+
+        if (word != null && word1 != null && word2 != null) {
+            QueryBuilder wordQuery = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word + "*");
+            QueryBuilder wordQuery1 = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word1 + "*");
+            QueryBuilder wordQuery2 = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word2 + "*");
+            boolQuery.should(wordQuery);
+            boolQuery.should(wordQuery1);
+            boolQuery.should(wordQuery2);
+        } else if (word != null && word1 != null) {
+            QueryBuilder wordQuery = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word + "*");
+            QueryBuilder wordQuery1 = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word1 + "*");
+            boolQuery.should(wordQuery);
+            boolQuery.should(wordQuery1);
+        } else if (word != null) {
+            QueryBuilder wordQuery = QueryBuilders.wildcardQuery(FILE_CONTENT, "*" + word + "*");
+            boolQuery.must(wordQuery);
+        }
+
+        NativeSearchQuery searchQuery = new NativeSearchQueryBuilder()
+                .withQuery(boolQuery)
+                .build();
+
+        SearchHits<SearchDocument> searchHits = elasticsearchRestTemplate.search(searchQuery, SearchDocument.class);
+
+        result.setDocuments(searchHits.get().map(SearchHit::getContent).collect(Collectors.toList()));
+        result.setTotalDocuments(getTotalIndex(startDate, endDate));
+        result.setFoundDocuments(searchHits.getTotalHits());
 
         return result;
     }
 
+    public Long getTotalIndex(LocalDate startDate,
+                              LocalDate endDate) {
+        BoolQueryBuilder boolQuery = QueryBuilders.boolQuery();
 
-    public void deleteByPath(String path) {
-      //  documentRepository.deleteByPath(path);
-        var query=new NativeSearchQueryBuilder()
-                .withQuery(QueryBuilders.termQuery("path",path))
+        checkData(startDate, endDate, boolQuery);
+
+        // Повторно выполняем запрос, чтобы получить общее количество найденных документов только по дате
+        NativeSearchQuery dateQuery = new NativeSearchQueryBuilder()
+                .withQuery(boolQuery)
                 .build();
 
-        elasticsearchOperations.delete(query,SearchDocument.class);
-        log.info("Document with path {} has been deleted.", path);
-
+        SearchHits<SearchDocument> dateSearchHits = elasticsearchRestTemplate.search(dateQuery, SearchDocument.class);
+        return dateSearchHits.getTotalHits();
     }
 
-    public void deleteAll(List<SearchDocument> list) {
-        List<SearchDocument> indexedFiles = new ArrayList<>(list);
-        indexedFiles.stream()
-                .map(SearchDocument::getPath)
-                .forEach(path -> {
-                    documentRepository.deleteByPath(path);
-                    log.info("Document with path {} has been deleted.", path);
-                });
+    private void checkData(LocalDate startDate, LocalDate endDate, BoolQueryBuilder boolQuery) {
+        if (startDate != null && endDate != null) {
+            String startString = startDate.format(DateTimeFormatter.ofPattern(DATA_FORMAT));
+            String endString = endDate.format(DateTimeFormatter.ofPattern(DATA_FORMAT));
+            QueryBuilder dateRangeQuery = QueryBuilders.rangeQuery("name")
+                    .from(startString)
+                    .to(endString)
+                    .includeLower(true)
+                    .includeUpper(true);
+            boolQuery.filter(dateRangeQuery);
+
+        } else if (startDate != null) {
+            String startString = startDate.format(DateTimeFormatter.ofPattern(DATA_FORMAT));
+            QueryBuilder dateQuery = QueryBuilders.termQuery("name", startString);
+            boolQuery.filter(dateQuery);
+
+        }
     }
 }
+
+

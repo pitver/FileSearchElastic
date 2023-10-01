@@ -3,15 +3,15 @@ package ru.vershinin.controller;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.web.PageableDefault;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.vershinin.model.SearchDocument;
 import ru.vershinin.service.DocumentService;
-import ru.vershinin.service.IndexCreator;
+import ru.vershinin.service.indexCreator.IndexCreatorService;
 
-import java.util.List;
+import java.time.LocalDate;
 
 @RestController
 @RequiredArgsConstructor
@@ -19,28 +19,16 @@ public class ElasticSearchController {
 
 
     private final DocumentService elasticSearchQuery;
-    private final IndexCreator indexCreator;
+    private final IndexCreatorService indexCreator;
 
-    @GetMapping("/findByNameSingleHit")
-    public ResponseEntity<Object> findByNameSingleHit(@RequestParam String name) {
-        var documents = elasticSearchQuery.findByNameSingleHit(name);
-        return new ResponseEntity<>(documents, HttpStatus.OK);
-    }
-
-    @GetMapping("/searchByNameTotalHits")
-    public ResponseEntity<Object> searchByNameTotalHits(@RequestParam String name) {
-      //  var documents = elasticSearchQuery.searchByPartOfNameTotalHits(name);
-        var documents = elasticSearchQuery.searchByPartOfNameWithStats(name);
-        return new ResponseEntity<>(documents, HttpStatus.OK);
-    }
 
     @GetMapping("/scanDirectory")
     public ResponseEntity<Object> scanDirectory(@RequestParam String dir) {
-        indexCreator.createIndexesFromDirectory(dir);
+        indexCreator.prepareContentAndSend(dir);
         return new ResponseEntity<>("ok", HttpStatus.OK);
     }
 
-    @GetMapping("/searchDocument")
+    @GetMapping("/searchAllDocument")
     public ResponseEntity<Page<SearchDocument>> searchAllDocument(Pageable pageable) {
         var documents = elasticSearchQuery.findAllPage(pageable);
         return new ResponseEntity<>(documents, HttpStatus.OK);
@@ -55,6 +43,17 @@ public class ElasticSearchController {
     @GetMapping("/findByName")
     public ResponseEntity<Object> findByName(@RequestParam String name) {
         var documents = elasticSearchQuery.findByName(name);
+        return new ResponseEntity<>(documents, HttpStatus.OK);
+    }
+
+    @GetMapping("/fiter")
+    public ResponseEntity<Object> findByName(@RequestParam(required = false) String extension,
+                                             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+                                             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
+                                             @RequestParam(required = false) String word,
+                                             @RequestParam(required = false) String word1,
+                                             @RequestParam(required = false) String word2) {
+        var documents = elasticSearchQuery.searchDocumentsByCriteriaWithStatistics(extension, startDate, endDate, word,word1,word2);
         return new ResponseEntity<>(documents, HttpStatus.OK);
     }
 }

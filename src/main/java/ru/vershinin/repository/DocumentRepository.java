@@ -9,10 +9,9 @@ import java.util.List;
 
 public interface DocumentRepository extends ElasticsearchRepository<SearchDocument,String> {
 
-    SearchDocument findByName(String name);
+    List<SearchDocument> findByName(String name);
     List<SearchDocument> findAll();
     Page<SearchDocument>findAll(Pageable pageable);
-    void deleteByPath(String path);
 
 
 }

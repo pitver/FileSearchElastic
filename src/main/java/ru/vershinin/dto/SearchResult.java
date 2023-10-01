@@ -1,37 +1,14 @@
 package ru.vershinin.dto;
 
+import lombok.Data;
 import ru.vershinin.model.SearchDocument;
 
 import java.util.List;
 
+
+@Data
 public class SearchResult {
-    private List<SearchDocument> searchResults;
-    private int totalFilesProcessed;
-    private int totalOccurrencesFound;
-
-    // Геттеры и сеттеры для полей
-
-    public List<SearchDocument> getSearchResults() {
-        return searchResults;
-    }
-
-    public void setSearchResults(List<SearchDocument> searchResults) {
-        this.searchResults = searchResults;
-    }
-
-    public int getTotalFilesProcessed() {
-        return totalFilesProcessed;
-    }
-
-    public void setTotalFilesProcessed(int totalFilesProcessed) {
-        this.totalFilesProcessed = totalFilesProcessed;
-    }
-
-    public int getTotalOccurrencesFound() {
-        return totalOccurrencesFound;
-    }
-
-    public void setTotalOccurrencesFound(int totalOccurrencesFound) {
-        this.totalOccurrencesFound = totalOccurrencesFound;
-    }
+    private List<SearchDocument> documents;
+    private long totalDocuments; // Общее количество просмотренных документов
+    private long foundDocuments;
 }
